@@ -1,0 +1,682 @@
+---
+title: "Actors with significant contribution to movies' success"
+subtitle: Jyoti Ranjan Mohapatra
+date: "`r format(Sys.Date(), '%d.%m.%Y')`"
+output:
+  html_document:
+    #df_print: paged
+    fig_width: 8
+    fig_height: 6
+    fig_caption: true
+    theme: flatly
+    #https://bootswatch.com/3/
+    highlight: tango
+  word_document: default
+  pdf_document: default
+geometry: margin=2cm
+auther: Jyoti Ranjan Mohapatra
+---
+<style type="text/css">
+
+h1.title {
+  font-size: 28px;
+}
+h1 { /* Header 1 */
+  font-size: 20px;
+}
+h2 { /* Header 2 */
+    font-size: 20px;
+}
+h3 { /* Header 3 */
+  font-size: 20px;
+  font-family: "Times New Roman", Times, serif;
+}
+pre { /* Code block - determines code spacing between lines */
+    font-size: 14px;
+}
+</style>
+
+```{r setup, include=FALSE}
+#knitr::opts_chunk$set(echo = TRUE)
+#knitr::opts_chunk$set(dev = "cairo_pdf",echo = TRUE, message = FALSE, warning = FALSE, dpi = 300, cache = FALSE, attr.output='style="max-height: 300px;"')
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, error=FALSE, fig.align = 'center')
+knitr::opts_knit$set(root.dir = "C:/Users/jyoti/My Drive (mail.jyotiranjan@gmail.com)/DS MS/DS R/M7/Day 5 R Workshop-20221203/Workshop/")
+
+#Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of #the R code that generated the plot.
+
+```
+
+
+
+```{r , warning=FALSE}
+##> Install and load all necessary dependencies
+if (!require(tidyverse, quietly = TRUE)) {
+    install.packages("tidyverse")
+    require(tidyverse)
+}
+if (!require(networkD3, quietly = TRUE)) {
+    install.packages("networkD3")
+    require(networkD3)
+}
+if (!require(igraph, quietly = TRUE)) {
+    install.packages("igraph")
+    require(igraph)
+}
+if (!require(magrittr, quietly = TRUE)) {
+    install.packages("magrittr")
+    require(magrittr)
+}
+if (!require(widyr, quietly = TRUE)) {
+    install.packages("widyr")
+    require(widyr)
+}
+if (!require(stringr, quietly = TRUE)) {
+    install.packages("stringr")
+    require(stringr)
+}
+if (!require(ggraph, quietly = TRUE)) {
+    install.packages("ggraph")
+    require(ggraph)
+}
+if (!require(ggrepel, quietly = TRUE)) {
+    install.packages("ggrepel")
+    require(ggrepel)
+}
+if (!require(tidytext, quietly = TRUE)) {
+    install.packages("tidytext")
+    require(tidytext)
+}
+if (!require(wordcloud, quietly = TRUE)) {
+    install.packages("wordcloud")
+    require(wordcloud)
+}
+if (!require(reshape2, quietly = TRUE)) {
+    install.packages("reshape2")
+    require(reshape2)
+}
+if (!require(treemap, quietly = TRUE)) {
+    install.packages("treemap")
+    require(treemap)
+}
+
+```
+### 1	Introduction
+
+This research intends to learn which actors have contributed most for a movie to be successful and popular. We will use the Rotten tomatoes datasets for our analysis. It has historical list of movies and details including actors involved, content rating, genres, directors, authors, reviews etc.
+
+We want to measure the top actors involved with highly successful movies. This is where it becomes interesting, and difficult too. The determining factor for a movie to be successful is the ratings received on these movies, namely tomato meter rating and audience rating. So, these are independent variables for our analysis. Below we have steps required to carry out our analysis and important fact-checks which lead to a probable conclusion. We use appropriate charts and graphs to discuss our findings. The actual working R code is hosted on Github and its reference is given in the annexure.
+
+### 2	Research  
+
+We are provided with movie reviews dataset from Rotten tomatoes website. There are many variables containing details about the movies and reviews by critics. Also, there are two types of ratings called tomato meter rating and audience rating. Some of these variables are only there for informational purposes and may be removed during the analysis process. We need to consider the below points in our analysis:
+
+Generalizability:
+
+The given datasets are quite big. Also, we have to consider reviews which suit our analysis purpose. We are not using any random sampling method, but we use all reviews which are Fresh or Certified-Fresh. We treat all these movies as successful movies and then proceed with our analysis.
+
+Causality:
+
+This is an observational study, so causality cannot be determined by the analysis. We will only perform a statistical study on actors involved with successful movies.
+
+
+```{r , warning=FALSE}
+##> Load the dataset
+##> Data on n = 17712 movies rated on Rotten Tomatoes
+movies_meta <- read_delim("data/rotten_tomatoes_movies.csv", delim = ",", col_names = TRUE, col_types = NULL,
+                          locale = locale("de"), na = c("", "NA"), quoted_na = TRUE,
+                          quote = "\"", comment = "", trim_ws = TRUE, skip = 0, n_max = Inf)
+
+
+length(unique(movies_meta$movie_title))           # 17105 - non-unique
+length(unique(movies_meta$rotten_tomatoes_link))  # 17712 - unique
+
+##> We will use "rotten_tomatoes_link" as unique key
+
+movies = movies_meta[c("rotten_tomatoes_link", "movie_title","actors","tomatometer_rating","audience_rating")]
+
+##> tomatometer_rating < 60, rotten
+##> tomatometer_rating >= 60, Fresh, Certified-Fresh
+##> From a quick look at the data, we see that high ratings are either Fresh or Certified-Fresh
+##> We are interested in analyzing the successful movies and actors associated with them.
+##> So we will keep only Fresh or Certified-Fresh movies.
+
+
+##>----  Check Appropriateness ----------------------------------------------------------------------------
+sum(is.na(movies$tomatometer_rating)) #44
+sum(is.na(movies$audience_rating))    #296
+
+##> We see that there are movies where either of the ratings columns are missing.
+##> Since our analysis is based on ratings, so we will drop the movies with any of the two rating as NA
+```
+
+
+#### 2.1 Data Treatment
+
+We will check how the data is distributed. Since we intend to use ratings as independent variables, we focus on what decides a good rating. For this we will plot a boxplot to check the different status of the movies and which ratings contributed in achieving these statuses. 
+
+
+```{r , echo=FALSE, ,results='hide'}
+##> Separate Actors
+##> Drop empty rows
+##> Get first x actors
+##> Rename column to "actor" because now each row corresponds to an individual actor
+actors_per_movie = 10
+
+movie_actors = movies %>%
+  separate_rows(actors,sep=", ") %>%
+  drop_na() %>%                          # drop rows with NA rating
+  group_by(movie_title) %>%
+  filter(row_number()<=actors_per_movie) %>%
+  rename(
+    actor = actors,
+  ) %>%
+  ungroup()
+
+
+sum(is.na(movie_actors$tomatometer_rating)) #0
+sum(is.na(movie_actors$audience_rating))    #0
+```
+
+There are three status values. A bad status in our dataset is shows as “Rotten”. A good status can be either “Fresh” or “Certified-Fresh”. One important observation is that the tomato meter rating value of 60 or more is given a good status.
+
+Inference:
+	
+Since we want to research on successful movies and actors associated with them, hence we will consider movies reviews with movies with ratings 60 or more. If we consider tomato meter status as Fresh and Certified-Fresh, then also we get the same reviews with rating 60 or more.
+
+
+
+#### 2.2     Consideration of Tomato meter rating vs Audience rating 
+
+We have mainly two types of ratings in the provided dataset namely tomato meter rating and audience rating. The original dataset has one row per movie and it has list of actors in the movie. For our analysis we have separated all the actors and considered the first 10 actors as lead actors. This way we want to ensure that only main characters are considered in the analysis, and we avoid and guest appearance of a famous actor. Below we have a simple comparison of top 15 actors according to either of these ratings. 
+
+
+
+
+```{r , warning=FALSE}
+## Tomato meter rating
+ 
+##>  Consider the tomatometer_rating of an actor in a movie as mean rating
+##>  Take forward only mean rating > 60. Since we saw that Fresh ratings are > 60 rating value
+
+min_rating = 60
+
+actor_ratings = movie_actors %>%
+  #mutate(rating = tomatometer_rating) %>%
+  mutate(rating = tomatometer_rating) %>%
+  filter(rating >= min_rating) 
+
+##> Create new DF with number of movies and mean rating of the actor
+
+actor_stats = actor_ratings %>%
+  select(actor, rating) %>%
+  group_by(actor) %>%
+  summarise(movie_freq = n(), mean_rating = mean(rating))
+
+## sort list and get top 50 actors
+amount_actors = 15
+top_ratings = actor_stats %>%
+  arrange(desc(movie_freq), desc(mean_rating)) %>%
+  head(amount_actors)
+
+
+library(RColorBrewer)
+# Define the number of colors you want
+nb.cols <- amount_actors
+mycolors <- colorRampPalette(brewer.pal(8, "Set2"))(nb.cols)
+
+p <- top_ratings %>%
+  arrange(desc(movie_freq),desc(mean_rating)) %>%
+  mutate(actor=factor(actor,levels=actor)) %>%
+  ggplot(aes(x=actor, y=movie_freq,fill=as.factor(round(mean_rating,2)))) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = mycolors) +
+  theme_minimal() +
+  theme(legend.position = "right") +
+  scale_x_discrete(guide = guide_axis(angle = 60))
+  #scale_x_discrete(guide = guide_axis(n.dodge = 2))
+  #scale_fill_brewer(palette="Reds")
+  #coord_flip()
+
+p +labs(title="Number of movies and Tomatometer rating of top actors",
+        x ="Actor",
+        y = "Movies count",
+        fill = "Rating in %") +
+  guides(fill = guide_legend(reverse = TRUE))
+  
+
+
+p1 <- top_ratings %>%
+  arrange(mean_rating) %>%
+  mutate(actor=factor(actor,levels=actor)) %>%
+  ggplot(aes(x=actor, y=mean_rating,fill=as.factor(round(mean_rating,2)))) +
+  geom_bar(stat = "identity") +
+  #scale_fill_manual(values = mycolors) +
+  theme_minimal() +
+  theme(legend.position = "right") +
+  #scale_x_discrete(guide = guide_axis(angle = 0))+
+#scale_x_discrete(guide = guide_axis(n.dodge = 2))
+#scale_fill_brewer(palette="Reds")
+  coord_flip()
+
+p1 +labs(title="Tomatometer Rating of top actors",
+        x ="Actor",
+        y = "Tomatometer Rating",
+        fill = "Rating in %") +
+  guides(fill = guide_legend(reverse = TRUE))
+
+
+```
+
+```{r , warning=FALSE}
+## Audience Rating
+ 
+##>  Consider the audience_rating of an actor in a movie as mean rating
+##>  Take forward only mean rating > 60. Since we saw that Fresh ratings are > 60 rating value
+
+min_rating = 60
+
+actor_ratings = movie_actors %>%
+  #mutate(rating = tomatometer_rating) %>%
+  mutate(rating = audience_rating) %>%
+  filter(rating >= min_rating) 
+
+
+
+##> Create new DF with number of movies and mean rating of the actor
+
+actor_stats = actor_ratings %>%
+  select(actor, rating) %>%
+  group_by(actor) %>%
+  summarise(movie_freq = n(), mean_rating = mean(rating))
+
+## sort list and get top 50 actors
+amount_actors = 15
+top_ratings = actor_stats %>%
+  arrange(desc(movie_freq), desc(mean_rating)) %>%
+  head(amount_actors)
+
+
+
+library(RColorBrewer)
+# Define the number of colors you want
+nb.cols <- amount_actors
+mycolors <- colorRampPalette(brewer.pal(8, "Set2"))(nb.cols)
+
+p <- top_ratings %>%
+  arrange(desc(movie_freq),desc(mean_rating)) %>%
+  mutate(actor=factor(actor,levels=actor)) %>%
+  ggplot(aes(x=actor, y=movie_freq,fill=as.factor(round(mean_rating,2)))) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = mycolors) +
+  theme_minimal() +
+  theme(legend.position = "right") +
+  scale_x_discrete(guide = guide_axis(angle = 60))
+  #scale_x_discrete(guide = guide_axis(n.dodge = 2))
+  #scale_fill_brewer(palette="Reds")
+  #coord_flip()
+
+p +labs(title="Number of movies and Audience rating of top actors",
+        x ="Actor",
+        y = "Movies count",
+        fill = "Rating in %") +
+  guides(fill = guide_legend(reverse = TRUE))
+  
+
+
+p1 <- top_ratings %>%
+  arrange(mean_rating) %>%
+  mutate(actor=factor(actor,levels=actor)) %>%
+  ggplot(aes(x=actor, y=mean_rating,fill=as.factor(round(mean_rating,2)))) +
+  geom_bar(stat = "identity") +
+  #scale_fill_manual(values = mycolors) +
+  theme_minimal() +
+  theme(legend.position = "right") +
+  #scale_x_discrete(guide = guide_axis(angle = 0))+
+#scale_x_discrete(guide = guide_axis(n.dodge = 2))
+#scale_fill_brewer(palette="Reds")
+  coord_flip()
+
+p1 +labs(title="Audience rating of top actors",
+        x ="Actor",
+        y = "Audience Rating",
+        fill = "Rating in %") +
+  guides(fill = guide_legend(reverse = TRUE))
+
+
+```
+
+
+A quick look at the bar charts provides us with some insights on the ratings and top actors. Below notes summarize the insights: 
+
+•	Audience can rate differently than critics. We see that the rating percentage is completely different among the two rating systems.
+
+•	Some actor like Cary Grant is top#2 in tomato meter rating, but he is not among top#15 actors according to the audience.
+
+•	Similarly, Johnny Deep is rated high by audience. He is top#6 according to the audience, but he is not among top#15 actors from tomato meter.
+
+•	Michael Caine is top#2 according to audience, but he is top#15 as per critics.
+
+Inference:
+
+Due to this difference of opinions, we will consider both the ratings by taking the mean rating, and then proceed further with our analysis. 
+
+#### 2.3     Analysis using mean rating and determination of top contributing actors 
+
+Once we have determined the scope of our research, we create a new data frame with all relevant variables. We have summarized the high mean rated actors along with the number of movies in which they appear. 
+
+One approach of analysis would be to bring the number of movies to equal scale, but we have not done so here. In further steps we will extract the actual reviews from all their movies. Hence, keeping the real movie numbers makes more sense for our specific use-case. 
+
+The number of movies for most of the actors is very close. The full range varies form 34 movies to 47 movies. In fact, we have 4 actors who are featured in exactly 34, 35 or 36 successful movies each. I find this information to be very interesting.
+
+
+```{r , warning=FALSE}
+## Mean rating of tomato meter and audience rating
+ 
+##>  Calculate the mean rating of an actor in a movie
+##>  Take forward only mean rating > 60. Since we saw that Fresh ratings are > 60 rating value
+
+min_rating = 60
+
+actor_ratings = movie_actors %>%
+  mutate(rating = (tomatometer_rating + audience_rating)/2) %>%
+  filter(rating >= min_rating) 
+
+
+
+##> Create new DF with number of movies and mean rating of the actor
+
+actor_stats = actor_ratings %>%
+  select(actor, rating) %>%
+  group_by(actor) %>%
+  summarise(movie_freq = n(), mean_rating = mean(rating))
+
+## sort list and get top 50 actors
+amount_actors = 15
+top_ratings = actor_stats %>%
+  arrange(desc(movie_freq), desc(mean_rating)) %>%
+  head(amount_actors)
+
+
+library(RColorBrewer)
+# Define the number of colors you want
+nb.cols <- amount_actors
+mycolors <- colorRampPalette(brewer.pal(8, "Set2"))(nb.cols)
+
+p <- top_ratings %>%
+  arrange(desc(movie_freq),desc(mean_rating)) %>%
+  mutate(actor=factor(actor,levels=actor)) %>%
+  ggplot(aes(x=actor, y=movie_freq,fill=as.factor(round(mean_rating,2)))) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = mycolors) +
+  theme_minimal() +
+  theme(legend.position = "right") +
+  scale_x_discrete(guide = guide_axis(angle = 60))
+  #scale_x_discrete(guide = guide_axis(n.dodge = 2))
+  #scale_fill_brewer(palette="Reds")
+  #coord_flip()
+
+p +labs(title="Number of movies and Mean rating of Top Actors",
+        x ="Actor",
+        y = "Movies count",
+        fill = "Mean Rating") +
+  guides(fill = guide_legend(reverse = TRUE))
+
+```
+
+In the above plot, we have movies count along with mean rating. The mean rating is shown in distinct color for each actor. This plot basically shows a statistic of how many movies a specific actor appeared in and all the movies are successful movies (with status as Fresh or Certified-Fresh). Below few observations are provided:
+
+•	Although Samuel Jackson has a mean rating of 77.81% which places him on spot #9, he has featured in most successful 47 movies. That’s why he comes to the leftmost position on the above plot.
+
+•	John Wayne takes 1st spot in this new plot with highest mean rating of 82.51%.
+
+For a better understanding, we have the below plot which is a redrawn version of the previous plot without showing the number of movies.
+
+
+```{r , warning=FALSE}
+## Updated Plot
+ 
+p1 <- top_ratings %>%
+  arrange(mean_rating) %>%
+  mutate(actor=factor(actor,levels=actor)) %>%
+  ggplot(aes(x=actor, y=mean_rating,fill=as.factor(round(mean_rating,2)))) +
+  geom_bar(stat = "identity") +
+  #scale_fill_manual(values = mycolors) +
+  theme_minimal() +
+  theme(legend.position = "right") +
+  #scale_x_discrete(guide = guide_axis(angle = 0))+
+#scale_x_discrete(guide = guide_axis(n.dodge = 2))
+#scale_fill_brewer(palette="Reds")
+  coord_flip()
+
+p1 +labs(title="Mean rating of Top Actors",
+        x ="Actor",
+        y = "Mean Rating",
+        fill = "Mean Rating") +
+  guides(fill = guide_legend(reverse = TRUE))
+
+```
+
+We have plotted top 15 actors according to descending mean rating. This makes drawing conclusions easier than the previous plot. We can also compare this plot to the individual plots we saw earlier in section 2.2. We can draw few quick conclusions as summarized below.
+
+•	Johnny Deep is rated high by audience. He is top#6 according to the audience rating, but he is not among top#15 actors from tomato meter. In this plot with mean rating, we can see that Johnny Deep takes 10th place.
+
+•	John Wayne takes 1st spot in this new plot.
+
+•	Meryl Streep keeps the same spot of #11 in this new plot. This is because her mean of #11 in tomato meter rating and #15 in audience rating gives her a mean value of 76.72%. Coincidentally, this percentage falls on 11th place in this new plot as well. 
+
+#### 2.4     Review analysis of top actors by using a Word Cloud 
+
+Once again, we redefine our scope of research. This time we create a new data frame with review among the relevant variables. Our goal is to perform text analysis and extract useful information on what are the words that are most used in movie reviews for our selected top 15 actors.
+We have to be selective of our review content. Hence, we take reviews only from top critics. Fortunately, we have a separate field on the dataset for this. We also do some text processing like combining words separated by apostrophes or hyphens, removing URLs, @-mentions, hashtags, punctuation, numbers and stop words etc.
+
+
+```{r , warning=FALSE, fig.width=9, fig.height=8}
+##> Word Cloud
+## movie reviews (including some meta data matched from the movies data base by Rotten Tomatoes Link, n = 1.130.017)
+reviews <- read_delim("data/rotten_tomatoes_meta.csv", delim = ",", col_names = TRUE, col_types = NULL,
+                      locale = locale("de"), na = c("", "NA"), quoted_na = TRUE,
+                      quote = "\"", comment = "", trim_ws = TRUE, skip = 0, n_max = Inf)
+
+## we only need the movie title, the text and whether or not the movie was critiqued by a professional
+movies = unique(actor_ratings[actor_ratings$actor %in% top_ratings$actor,"movie_title"])
+colnames(movies) = c("movie_title")
+reviews = reviews[reviews$movie_title %in% movies$movie_title,c("movie_title","review_content","top_critic")]
+colnames(reviews) = c("title","text","top_critic")
+
+#if(topcritic){
+  reviews = reviews[reviews$top_critic == TRUE,]
+#}
+
+# PREPROCESSING
+##copying the variable containing the full texts for further analysis to also keep the original column for later detail analysis/rechecking
+
+## combining words separated by apostrophes (like "it's" and "don't" etc.)
+reviews$text  <- gsub("(\\w)['´’]([trs]\\w*)", "\\1\\2", reviews$text, ignore.case=TRUE)
+
+## combining words separated by hyphens
+reviews$text  <- gsub("([a-zA-ZöÖüÜäÄß0-9_])-([a-zA-ZöÖüÜäÄß0-9_])", "\\1\\2", reviews$text, ignore.case = TRUE)
+
+##removing URLs (with different toplevel domains)
+reviews$text <- gsub("https?://.*?(\\s|$)", " ", reviews$text, ignore.case = TRUE)
+reviews$text <- gsub("(www.)?\\w+\\.de", " ", reviews$text, ignore.case = TRUE)
+reviews$text <- gsub("(www.)?\\w+\\.com", " ", reviews$text, ignore.case = TRUE)
+reviews$text <- gsub("(www.)?\\w+\\.org", " ", reviews$text, ignore.case = TRUE)
+
+##removing @-mentions and hashtags
+reviews$text <- gsub("@\\S*", " ", reviews$text, ignore.case = TRUE)
+reviews$text <- gsub("#\\S*", " ", reviews$text, ignore.case = TRUE)
+
+##removing punctuation
+reviews$text <- gsub("[[:punct:]]+", " ", reviews$text, ignore.case = TRUE)
+
+## removing numbers
+reviews$text  <- gsub("[[:digit:]]+", " ", reviews$text, ignore.case = TRUE)
+
+tidy_reviews <- tidytext::unnest_tokens(
+  reviews,
+  word_token,
+  text,
+  token = "words",
+  format = "text",
+  to_lower = TRUE
+)
+
+## removing stopwords (combinded words, actor names)
+stop_words_en = tidytext::stop_words
+stop_words_en$word  <- gsub("(\\w)['´’]([trs]\\w*)", "\\1\\2", stop_words_en$word, ignore.case=TRUE)
+add = data.frame(c(NA,"ll","ve"),c("own","own","own"))
+colnames(add) = c("word","lexicon")
+stop_words_en = rbind(stop_words_en, add)
+actors_stopwords = data.frame(top_ratings$actor,rep("own",amount_actors))
+colnames(actors_stopwords) = c("word","lexicon")
+actors_stopwords = tidytext::unnest_tokens(
+  actors_stopwords,
+  word_token,
+  word,
+  format = "text",
+  to_lower = TRUE
+)
+colnames(actors_stopwords) = c("lexicon","word")
+stop_words_en = rbind(stop_words_en,actors_stopwords)
+
+tidy_reviews = tidy_reviews %>%
+  anti_join(stop_words_en, by=c("word_token"="word")) 
+
+## create new dataset, set words to the actors
+tmp = actor_ratings[actor_ratings$actor %in% top_ratings$actor,c("movie_title","actor")]
+merged = merge(tmp,tidy_reviews, by.x="movie_title",by.y="title")
+
+## filter to two actors, create word cloud
+keywords_selected_actors <- top_ratings$actor
+selected_films_dict <- tibble(keywords_selected_actors)
+## str_extract searches the variable reviews$movie_title for matches with our keyword list and annotates them in a new column
+merged$selection <- str_extract(merged$actor, paste(keywords_selected_actors, collapse="|"))
+actor_filter<-subset(merged, !is.na(merged$selection))
+merged["selection"][is.na(merged["selection"])] <- "other"
+
+
+
+cloud <- actor_filter %>%
+  count(word_token, selection, sort = TRUE) %>%
+  reshape2::acast(word_token ~ selection, value.var = "n", fill = 0)
+##> https://r-graph-gallery.com/38-rcolorbrewers-palettes.html
+par(mar = rep(0, 4))
+mycolors <- colorRampPalette(brewer.pal(8, "Dark2"))(nb.cols)
+wordcloud::comparison.cloud(cloud, max.words=400,
+                 random.order=FALSE, rot.per=.1,
+                 #colors=brewer.pal(max(15,ncol(cloud)),"Dark2"),
+                 colors = mycolors,
+                 use.r.layout=TRUE, 
+                 title.size=0.9,
+                 title.colors=mycolors, 
+                 match.colors=TRUE)
+
+
+```
+
+We have the word cloud in which actor names with gray box background. The 15 actor names are given with distinct colors. To keep our analysis simple, the most frequent words associated with the actors also given respective colors same with the actor’s name. We can draw some interesting conclusions as summarized below.
+
+•	John Wayne has interesting words from his movies like grit (True Grit), rio (Rio Bravo) etc. There are also some terms from the genre and cowboy style of the movies like western, shot etc.
+
+•	Clint Eastwood has word eastwoods which is frequently used in the movie reviews featuring him. Also, we see some terms like boxing (Million-dollar baby), cowboys (The good, the bad, the ugly or High plains drifter) etc.
+
+•	Johnny Deep has terms associated with him as pirates, rango or burton. These are from his movies Pirates of the Caribbean and Rango, or with the famous author Tim Burton. 
+
+•	Meryl Streep has interesting terms like mamma and mia (Mamma Mia), devil (The Devil Wears Prada), companion (A Prairie Home Companion), Julia (Julie & Julia) etc. We also see some most used nickname as Streeps which comes up frequently in the review texts.
+
+•	Samuel Jackson is associated with terms as marvel, captain, spiderman, iron, ultron from Marvel movie/comic universe. We can also see the word lucas from Lucasarts/Starwars movie series.
+
+•	Jim Broadbent has words like harry, potter, paddington etc. from the movies where he has played roles.
+
+•	Woody Harrelson is associated with the hunger games and Star Wars. We find words like hunger, games and star, war, solo etc. respectively from those two movie franchises.
+
+Similarly, we can draw conclusions for other actors as well. This technique can also be extended for any other specific actor if intended. But that analysis would be beyond the scope of our current research.
+
+#### 2.5     Network graph to identify actors working together 
+
+Now we work on a graph which shows which actors have worked together in movies. When we prepare the graph only for top actors, then there are very fewer connecting edges or common movies. So, I have included all actors in our dataset, but I filtered out connections less than 5. Thus, we end up with the below graph. The graph is of high resolution and can be read when enlarged. It looks small below due to limited size of report page.
+
+
+```{r , warning=FALSE, fig.width=18, fig.height=6}
+
+# Make edge list (actors are connected by appearing in the same movie)
+df.edge_list <- actor_ratings %>% 
+  #filter(actor %in% df.top_actors$actor) %>% 
+  pairwise_count(
+    item = actor, 
+    feature = rotten_tomatoes_link, 
+    upper = FALSE,
+    diag = FALSE
+  )
+
+table(df.edge_list$n > 5)
+
+# Filter edge list and make graph
+g.actors_by_movies_filtered <- df.edge_list %>% 
+  filter(n >= 5) %>% 
+  igraph::graph_from_data_frame(directed = F)
+
+length(V(g.actors_by_movies_filtered))
+length(E(g.actors_by_movies_filtered))
+head(sort(degree(g.actors_by_movies_filtered), decreasing = T))
+
+g.actors_by_movies_filtered %>%
+  ggraph(layout = "stress") +
+  geom_edge_link(alpha = 0.50, edge_color = "grey20")  +
+  geom_node_point(color = "black", size = 1, show.legend = FALSE) +
+  #geom_node_text(aes(label = name),  colour = 'white', size=1,show.legend = FALSE, family = "serif") +
+  geom_node_label(aes(label = name),repel = TRUE, 
+                  show.legend = FALSE, 
+                  position = "identity",
+                  max.overlaps = 50) +
+  theme_graph(background = "white")
+
+g.actors_by_movies <- df.edge_list %>% igraph::graph_from_data_frame(directed = F)
+
+head(degree(g.actors_by_movies))
+neighbors(g.actors_by_movies, v = V(g.actors_by_movies)[V(g.actors_by_movies)$name == "Pierce Brosnan"])
+
+
+```
+
+Here are some summaries which can be drawn from the graph:
+
+•	On the right most side, we see connections between actors of Harry Potter movie series like Daniel Radcliffe, Emma Watson and Alan Rickman etc.
+
+•	The 3rd network from left shows Robert De Niro, Joe Pesci and Harvey Keitel. One common movie among them is The Irishman.
+
+•	One possible network could be from movie The Adventures of Robin Hood. This is the left most network connecting actors Alan hale, Olivia de Havilland and Errol Flynn as nodes.
+
+•	Towards the middle of the graph, we see a network among Scarlett Johansson, Chris Evans and Robert Downey Jr. from the Marvel universe movies.
+
+•	In the bottom we see many 2 or 3 node networks. One such network around the middle bottom of the graph is between Tom Cruise and Ving Rhames from Mission Impossible movies.
+
+Similarly, we can draw conclusions for other networks. Furthermore, this technique can be extended for other specific actors if intended.
+
+### 3	Conclusion
+
+We started our analysis with an intension to find the top contributing actors in successful movies. We can say that we have determined the top 15 actors in this research and the process is fun and intriguing. During this analysis we see many connections among the actors. Some connections are obvious and well known, where as some connections can be determined only after seeing the data, charts and diagrams created from the data.
+
+Another intriguing aspect is how Rotten Tomatoes rates movies. Rotten Tomatoes only considers reviews from critics and publications that have been given approval when determining its overall rankings. In addition, Rotten Tomatoes weights its ranks according to the number of reviews a movie has rather than just the overall rating. Finally we can summarize few areas of considerations while performing such research.
+
+Top three considerations during analysis:
+
+•	Data appropriateness:
+
+We have to be careful when we are preparing the data for our analysis during variable selection and text processing.
+
+•	Causality:
+
+We have to be careful at drawing conclusions. The entire analysis is based on historical data on movies last 7+ decades. Although it gives us interesting insights, it should not be used to provide unreasonable predictions. After all, "Correlation is not causation".
+
+•	Cultural biases:
+
+While processing review texts, we have to be careful about cultural biases the texts can contains from its reviewers. A top critic could be impartial, but when we want to process reviews from viewers we have to watch carefully for cultural/personal biases in the reviews. 
+
+
+
+</br>
+</br>
+</br>
+
+
