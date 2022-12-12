@@ -106,6 +106,8 @@ This research intends to learn which actors have contributed most for a movie to
 
 We want to measure the top actors involved with highly successful movies. This is where it becomes interesting, and difficult too. The determining factor for a movie to be successful is the ratings received on these movies, namely tomato meter rating and audience rating. So, these are independent variables for our analysis. Below we have steps required to carry out our analysis and important fact-checks which lead to a probable conclusion. We use appropriate charts and graphs to discuss our findings. The actual working R code is hosted on Github and its reference is given in the annexure.
 
+The datasets can be downloaded from <a href="https://github.com/iam-jrm/movie-actors/blob/main/Data.7z">Github link</a>.<br>
+
 ### 2	Research  
 
 We are provided with movie reviews dataset from Rotten tomatoes website. There are many variables containing details about the movies and reviews by critics. Also, there are two types of ratings called tomato meter rating and audience rating. Some of these variables are only there for informational purposes and may be removed during the analysis process. We need to consider the below points in our analysis:
